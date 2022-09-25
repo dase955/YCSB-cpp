@@ -18,6 +18,7 @@
 #include <rocksdb/status.h>
 #include <rocksdb/utilities/options_util.h>
 #include <rocksdb/write_batch.h>
+#include <iostream>
 
 namespace {
   const std::string PROP_NAME = "rocksdb.dbname";
@@ -185,7 +186,7 @@ void RocksdbDB::Init() {
     return;
   }
 
-  const std::string &db_path = props.GetProperty(PROP_NAME, PROP_NAME_DEFAULT);
+  const std::string db_path = "/tmp/db_test_nvm_l0";
   if (db_path == "") {
     throw utils::Exception("RocksDB db path is missing");
   }
@@ -221,6 +222,16 @@ void RocksdbDB::Cleanup() {
   if (--ref_cnt_) {
     return;
   }
+  rocksdb::Options options = db_->GetOptions();
+  std::cout << "Global Statistics: " << std::endl
+            << options.statistics->ToString() << std::endl;
+  
+  std::cout << options.statistics->getTickerCount(rocksdb::GET_HIT_L0) << "/"
+            << options.statistics->getTickerCount(rocksdb::GET_MISS_L0) << std::endl
+            << options.statistics->getTickerCount(rocksdb::GET_HIT_L1) << "/"
+            << options.statistics->getTickerCount(rocksdb::GET_MISS_L1) << std::endl
+            << options.statistics->getTickerCount(rocksdb::GET_HIT_L2_AND_UP) << "/"
+            << options.statistics->getTickerCount(rocksdb::GET_MISS_L2_AND_UP) << std::endl;
   delete db_;
 }
 
@@ -229,128 +240,25 @@ void RocksdbDB::GetOptions(const utils::Properties &props, rocksdb::Options *opt
   std::string env_uri = props.GetProperty(PROP_ENV_URI, PROP_ENV_URI_DEFAULT);
   std::string fs_uri = props.GetProperty(PROP_FS_URI, PROP_FS_URI_DEFAULT);
   rocksdb::Env* env =  rocksdb::Env::Default();;
-  if (!env_uri.empty() || !fs_uri.empty()) {
-    rocksdb::Status s = rocksdb::Env::CreateFromUri(rocksdb::ConfigOptions(),
-                                                    env_uri, fs_uri, &env, &env_guard);
-    if (!s.ok()) {
-      throw utils::Exception(std::string("RocksDB CreateFromUri: ") + s.ToString());
-    }
-    opt->env = env;
-  }
-
-  const std::string options_file = props.GetProperty(PROP_OPTIONS_FILE, PROP_OPTIONS_FILE_DEFAULT);
-  if (options_file != "") {
-    rocksdb::Status s = rocksdb::LoadOptionsFromFile(options_file, env, opt, cf_descs);
-    if (!s.ok()) {
-      throw utils::Exception(std::string("RocksDB LoadOptionsFromFile: ") + s.ToString());
-    }
-  } else {
-    const std::string compression_type = props.GetProperty(PROP_COMPRESSION,
-                                                           PROP_COMPRESSION_DEFAULT);
-    if (compression_type == "no") {
-      opt->compression = rocksdb::kNoCompression;
-    } else if (compression_type == "snappy") {
-      opt->compression = rocksdb::kSnappyCompression;
-    } else if (compression_type == "zlib") {
-      opt->compression = rocksdb::kZlibCompression;
-    } else if (compression_type == "bzip2") {
-      opt->compression = rocksdb::kBZip2Compression;
-    } else if (compression_type == "lz4") {
-      opt->compression = rocksdb::kLZ4Compression;
-    } else if (compression_type == "lz4hc") {
-      opt->compression = rocksdb::kLZ4HCCompression;
-    } else if (compression_type == "xpress") {
-      opt->compression = rocksdb::kXpressCompression;
-    } else if (compression_type == "zstd") {
-      opt->compression = rocksdb::kZSTD;
-    } else {
-      throw utils::Exception("Unknown compression type");
-    }
-
-    int val = std::stoi(props.GetProperty(PROP_MAX_BG_JOBS, PROP_MAX_BG_JOBS_DEFAULT));
-    if (val != 0) {
-      opt->max_background_jobs = val;
-    }
-    val = std::stoi(props.GetProperty(PROP_TARGET_FILE_SIZE_BASE, PROP_TARGET_FILE_SIZE_BASE_DEFAULT));
-    if (val != 0) {
-      opt->target_file_size_base = val;
-    }
-    val = std::stoi(props.GetProperty(PROP_TARGET_FILE_SIZE_MULT, PROP_TARGET_FILE_SIZE_MULT_DEFAULT));
-    if (val != 0) {
-      opt->target_file_size_multiplier = val;
-    }
-    val = std::stoi(props.GetProperty(PROP_MAX_BYTES_FOR_LEVEL_BASE, PROP_MAX_BYTES_FOR_LEVEL_BASE_DEFAULT));
-    if (val != 0) {
-      opt->max_bytes_for_level_base = val;
-    }
-    val = std::stoi(props.GetProperty(PROP_WRITE_BUFFER_SIZE, PROP_WRITE_BUFFER_SIZE_DEFAULT));
-    if (val != 0) {
-      opt->write_buffer_size = val;
-    }
-    val = std::stoi(props.GetProperty(PROP_MAX_WRITE_BUFFER, PROP_MAX_WRITE_BUFFER_DEFAULT));
-    if (val != 0) {
-      opt->max_write_buffer_number = val;
-    }
-    val = std::stoi(props.GetProperty(PROP_COMPACTION_PRI, PROP_COMPACTION_PRI_DEFAULT));
-    if (val != -1) {
-      opt->compaction_pri = static_cast<rocksdb::CompactionPri>(val);
-    }
-    val = std::stoi(props.GetProperty(PROP_MAX_OPEN_FILES, PROP_MAX_OPEN_FILES_DEFAULT));
-    if (val != 0) {
-      opt->max_open_files = val;
-    }
-
-    val = std::stoi(props.GetProperty(PROP_L0_COMPACTION_TRIGGER, PROP_L0_COMPACTION_TRIGGER_DEFAULT));
-    if (val != 0) {
-      opt->level0_file_num_compaction_trigger = val;
-    }
-    val = std::stoi(props.GetProperty(PROP_L0_SLOWDOWN_TRIGGER, PROP_L0_SLOWDOWN_TRIGGER_DEFAULT));
-    if (val != 0) {
-      opt->level0_slowdown_writes_trigger = val;
-    }
-    val = std::stoi(props.GetProperty(PROP_L0_STOP_TRIGGER, PROP_L0_STOP_TRIGGER_DEFAULT));
-    if (val != 0) {
-      opt->level0_stop_writes_trigger = val;
-    }
-
-    if (props.GetProperty(PROP_USE_DIRECT_WRITE, PROP_USE_DIRECT_WRITE_DEFAULT) == "true") {
-      opt->use_direct_io_for_flush_and_compaction = true;
-    }
-    if (props.GetProperty(PROP_USE_DIRECT_READ, PROP_USE_DIRECT_READ_DEFAULT) == "true") {
-      opt->use_direct_reads = true;
-    }
-    if (props.GetProperty(PROP_USE_MMAP_WRITE, PROP_USE_MMAP_WRITE_DEFAULT) == "true") {
-      opt->allow_mmap_writes = true;
-    }
-    if (props.GetProperty(PROP_USE_MMAP_READ, PROP_USE_MMAP_READ_DEFAULT) == "true") {
-      opt->allow_mmap_reads = true;
-    }
-
-    rocksdb::BlockBasedTableOptions table_options;
-    size_t cache_size = std::stoul(props.GetProperty(PROP_CACHE_SIZE, PROP_CACHE_SIZE_DEFAULT));
-    if (cache_size > 0) {
-      block_cache = rocksdb::NewLRUCache(cache_size);
-      table_options.block_cache = block_cache;
-    }
-    size_t compressed_cache_size = std::stoul(props.GetProperty(PROP_COMPRESSED_CACHE_SIZE,
-                                                                PROP_COMPRESSED_CACHE_SIZE_DEFAULT));
-    if (compressed_cache_size > 0) {
-      block_cache_compressed = rocksdb::NewLRUCache(cache_size);
-      table_options.block_cache_compressed = rocksdb::NewLRUCache(compressed_cache_size);
-    }
-    int bloom_bits = std::stoul(props.GetProperty(PROP_BLOOM_BITS, PROP_BLOOM_BITS_DEFAULT));
-    if (bloom_bits > 0) {
-      table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(bloom_bits));
-    }
-    opt->table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
-
-    if (props.GetProperty(PROP_INCREASE_PARALLELISM, PROP_INCREASE_PARALLELISM_DEFAULT) == "true") {
-      opt->IncreaseParallelism();
-    }
-    if (props.GetProperty(PROP_OPTIMIZE_LEVELCOMP, PROP_OPTIMIZE_LEVELCOMP_DEFAULT) == "true") {
-      opt->OptimizeLevelStyleCompaction();
-    }
-  }
+  //if (!env_uri.empty() || !fs_uri.empty()) {
+  //  rocksdb::Status s = rocksdb::Env::CreateFromUri(rocksdb::ConfigOptions(),
+  //                                                  env_uri, fs_uri, &env, &env_guard);
+  //  if (!s.ok()) {
+  //    throw utils::Exception(std::string("RocksDB CreateFromUri: ") + s.ToString());
+  //  }
+  //  opt->env = env;
+  // }
+  opt->create_if_missing = true;
+  opt->use_direct_io_for_flush_and_compaction = true;
+  opt->use_direct_reads = true;
+  opt->enable_pipelined_write = true;
+  opt->compression = rocksdb::kNoCompression;
+  opt->IncreaseParallelism(32);
+  opt->OptimizeForPointLookup(128);
+  opt->statistics = rocksdb::CreateDBStatistics();
+  opt->compaction_style = rocksdb::kCompactionStyleUniversal;
+  //opt->OptimizeLevelStyleCompaction();
+  opt->nvm_path = "/mnt/pmem1/crh/nodememory";
 }
 
 void RocksdbDB::SerializeRow(const std::vector<Field> &values, std::string &data) {
@@ -455,36 +363,7 @@ DB::Status RocksdbDB::ScanSingle(const std::string &table, const std::string &ke
 
 DB::Status RocksdbDB::UpdateSingle(const std::string &table, const std::string &key,
                                    std::vector<Field> &values) {
-  std::string data;
-  rocksdb::Status s = db_->Get(rocksdb::ReadOptions(), key, &data);
-  if (s.IsNotFound()) {
-    return kNotFound;
-  } else if (!s.ok()) {
-    throw utils::Exception(std::string("RocksDB Get: ") + s.ToString());
-  }
-  std::vector<Field> current_values;
-  DeserializeRow(current_values, data);
-  assert(current_values.size() == static_cast<size_t>(fieldcount_));
-  for (Field &new_field : values) {
-    bool found __attribute__((unused)) = false;
-    for (Field &cur_field : current_values) {
-      if (cur_field.name == new_field.name) {
-        found = true;
-        cur_field.value = new_field.value;
-        break;
-      }
-    }
-    assert(found);
-  }
-  rocksdb::WriteOptions wopt;
-
-  data.clear();
-  SerializeRow(current_values, data);
-  s = db_->Put(wopt, key, data);
-  if (!s.ok()) {
-    throw utils::Exception(std::string("RocksDB Put: ") + s.ToString());
-  }
-  return kOK;
+  return InsertSingle(table, key, values);
 }
 
 DB::Status RocksdbDB::MergeSingle(const std::string &table, const std::string &key,
