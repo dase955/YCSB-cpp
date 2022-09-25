@@ -91,6 +91,9 @@ const string CoreWorkload::OPERATION_COUNT_PROPERTY = "operationcount";
 const std::string CoreWorkload::FIELD_NAME_PREFIX = "fieldnameprefix";
 const std::string CoreWorkload::FIELD_NAME_PREFIX_DEFAULT = "field";
 
+const std::string CoreWorkload::ZIPFIAN_CONSTANT = "zipfianconstant";
+const std::string CoreWorkload::ZIPFIAN_CONSTANT_DEFAULT = "0.98";
+
 void CoreWorkload::Init(const utils::Properties &p) {
   table_name_ = p.GetProperty(TABLENAME_PROPERTY,TABLENAME_DEFAULT);
 
@@ -108,6 +111,8 @@ void CoreWorkload::Init(const utils::Properties &p) {
                                                    SCAN_PROPORTION_DEFAULT));
   double readmodifywrite_proportion = std::stod(p.GetProperty(
       READMODIFYWRITE_PROPORTION_PROPERTY, READMODIFYWRITE_PROPORTION_DEFAULT));
+
+  double zipfian_constant = std::stod(p.GetProperty(ZIPFIAN_CONSTANT, ZIPFIAN_CONSTANT_DEFAULT));
 
   record_count_ = std::stoi(p.GetProperty(RECORD_COUNT_PROPERTY));
   std::string request_dist = p.GetProperty(REQUEST_DISTRIBUTION_PROPERTY,
@@ -164,11 +169,11 @@ void CoreWorkload::Init(const utils::Properties &p) {
     // int new_keys = (int)(op_count * insert_proportion * 2); // a fudge factor
     // key_chooser_ = new ScrambledZipfianGenerator(record_count_ + new_keys);
 
-    key_chooser_ = new ScrambledZipfianGenerator(record_count_);
+    key_chooser_ = new ScrambledZipfianGenerator(record_count_, zipfian_constant);
     key_chooser_->SetOperationCount(op_count);
-    update_key_chooser_ = new ScrambledZipfianGenerator(record_count_);
+    update_key_chooser_ = new ScrambledZipfianGenerator(record_count_, zipfian_constant);
     update_key_chooser_->SetOperationCount(op_count);
-    read_key_chooser_ = new ScrambledZipfianGenerator(record_count_);
+    read_key_chooser_ = new ScrambledZipfianGenerator(record_count_, zipfian_constant);
     read_key_chooser_->SetOperationCount(op_count);
 
   } else if (request_dist == "latest") {

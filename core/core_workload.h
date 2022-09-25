@@ -157,6 +157,12 @@ class CoreWorkload {
   static const std::string FIELD_NAME_PREFIX_DEFAULT;
 
   ///
+  /// Zipfian Constant
+  ///
+  static const std::string ZIPFIAN_CONSTANT;
+  static const std::string ZIPFIAN_CONSTANT_DEFAULT;
+
+  ///
   /// Initialize the scenario.
   /// Called once, in the main client thread, before any operations are started.
   ///
