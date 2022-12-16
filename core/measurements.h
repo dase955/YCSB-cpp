@@ -48,6 +48,8 @@ class HdrHistogramMeasurements : public Measurements {
   void Reset() override;
  private:
   hdr_histogram *histogram_[MAXOPTYPE];
+  std::atomic<uint64_t> total_count_;
+  std::atomic<uint> count_[MAXOPTYPE];
 };
 #endif
 

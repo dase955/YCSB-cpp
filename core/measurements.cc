@@ -8,6 +8,7 @@
 #include "measurements.h"
 #include "utils.h"
 
+#include <iostream>
 #include <limits>
 #include <numeric>
 #include <sstream>
@@ -70,7 +71,7 @@ void BasicMeasurements::Reset() {
 }
 
 #ifdef HDRMEASUREMENT
-HdrHistogramMeasurements::HdrHistogramMeasurements() {
+HdrHistogramMeasurements::HdrHistogramMeasurements() : count_{}, total_count_{} {
   for (int op = 0; op < MAXOPTYPE; op++) {
     if (hdr_init(10, 1LL * 1000 * 1000 * 1000, 3, &histogram_[op]) != 0) {
       utils::Exception("hdr init failed");
@@ -79,30 +80,30 @@ HdrHistogramMeasurements::HdrHistogramMeasurements() {
 }
 
 void HdrHistogramMeasurements::Report(Operation op, uint64_t latency) {
-  hdr_record_value_atomic(histogram_[op], latency);
+  uint64_t cnt = total_count_.fetch_add(1, std::memory_order_relaxed);
+  if (cnt >= 20000000) {
+    hdr_record_value_atomic(histogram_[0], latency);
+  }
+  count_[op].fetch_add(1, std::memory_order_relaxed);
 }
 
 std::string HdrHistogramMeasurements::GetStatusMsg() {
   std::ostringstream msg_stream;
   msg_stream.precision(2);
-  uint64_t total_cnt = 0;
+  uint64_t total_cnt = total_count_.load(std::memory_order_relaxed);
   msg_stream << std::fixed << " operations;";
   for (int i = 0; i < MAXOPTYPE; i++) {
     Operation op = static_cast<Operation>(i);
-    uint64_t cnt = histogram_[op]->total_count;
+    uint64_t cnt = count_[op].load(std::memory_order_relaxed);
     if (cnt == 0)
       continue;
     msg_stream << " [" << kOperationString[op] << ":"
                << " Count=" << cnt
-               << " Max=" << hdr_max(histogram_[op]) / 1000.0
-               << " Min=" << hdr_min(histogram_[op]) / 1000.0
-               << " Avg=" << hdr_mean(histogram_[op]) / 1000.0
-               << " 90=" << hdr_value_at_percentile(histogram_[op], 90) / 1000.0
-               << " 99=" << hdr_value_at_percentile(histogram_[op], 99) / 1000.0
-               << " 99.9=" << hdr_value_at_percentile(histogram_[op], 99.9) / 1000.0
-               << " 99.99=" << hdr_value_at_percentile(histogram_[op], 99.99) / 1000.0
+               << " Avg=" << hdr_mean(histogram_[0]) / 1000.0
+               << " 90=" << hdr_value_at_percentile(histogram_[0], 90) / 1000.0
+               << " 95=" << hdr_value_at_percentile(histogram_[0], 95) / 1000.0
+               << " 99=" << hdr_value_at_percentile(histogram_[0], 99) / 1000.0
                << "]";
-    total_cnt += cnt;
   }
   return std::to_string(total_cnt) + msg_stream.str();
 }
@@ -110,7 +111,9 @@ std::string HdrHistogramMeasurements::GetStatusMsg() {
 void HdrHistogramMeasurements::Reset() {
   for (int op = 0; op < MAXOPTYPE; op++) {
     hdr_reset(histogram_[op]);
+    count_[op].store(0, std::memory_order_relaxed);
   }
+  total_count_.store(0, std::memory_order_relaxed);
 }
 #endif
 
