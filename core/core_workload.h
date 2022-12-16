@@ -22,12 +22,18 @@
 namespace ycsbc {
 
 enum Operation {
-  INSERT,
+  INSERT = 0,
   READ,
   UPDATE,
   SCAN,
   READMODIFYWRITE,
   DELETE,
+  INSERT_FAILED,
+  READ_FAILED,
+  UPDATE_FAILED,
+  SCAN_FAILED,
+  READMODIFYWRITE_FAILED,
+  DELETE_FAILED,
   MAXOPTYPE
 };
 
@@ -201,11 +207,11 @@ class CoreWorkload {
   uint64_t NextUpdateTransactionKeyNum();
   std::string NextFieldName();
 
-  int TransactionRead(DB &db);
-  int TransactionReadModifyWrite(DB &db);
-  int TransactionScan(DB &db);
-  int TransactionUpdate(DB &db);
-  int TransactionInsert(DB &db);
+  DB::Status TransactionRead(DB &db);
+  DB::Status TransactionReadModifyWrite(DB &db);
+  DB::Status TransactionScan(DB &db);
+  DB::Status TransactionUpdate(DB &db);
+  DB::Status TransactionInsert(DB &db);
 
   std::string table_name_;
   int field_count_;
