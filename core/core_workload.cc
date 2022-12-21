@@ -166,27 +166,24 @@ void CoreWorkload::Init(const utils::Properties &p) {
 
   if (request_dist == "uniform") {
     key_chooser_ = new UniformGenerator(0, record_count_ - 1);
-
+    update_key_chooser_ = new UniformGenerator(0, record_count_ - 1);
+    read_key_chooser_ = new UniformGenerator(0, record_count_ - 1);
   } else if (request_dist == "zipfian") {
     // If the number of keys changes, we don't want to change popular keys.
     // So we construct the scrambled zipfian generator with a keyspace
     // that is larger than what exists at the beginning of the test.
     // If the generator picks a key that is not inserted yet, we just ignore it
     // and pick another key.
-    int op_count = std::stoi(p.GetProperty(OPERATION_COUNT_PROPERTY));
-    // int new_keys = (int)(op_count * insert_proportion * 2); // a fudge factor
-    // key_chooser_ = new ScrambledZipfianGenerator(record_count_ + new_keys);
-
     key_chooser_ = new ScrambledZipfianGenerator(record_count_, zipfian_constant);
-    key_chooser_->SetOperationCount(op_count);
+    key_chooser_->SetOperationCount(320000000);
     update_key_chooser_ = new ScrambledZipfianGenerator(record_count_, zipfian_constant);
-    update_key_chooser_->SetOperationCount(op_count);
+    update_key_chooser_->SetOperationCount(320000000);
     read_key_chooser_ = new ScrambledZipfianGenerator(record_count_, zipfian_constant);
-    read_key_chooser_->SetOperationCount(op_count);
-
+    read_key_chooser_->SetOperationCount(320000000);
   } else if (request_dist == "latest") {
     key_chooser_ = new SkewedLatestGenerator(*transaction_insert_key_sequence_);
-
+    update_key_chooser_ = new SkewedLatestGenerator(*transaction_insert_key_sequence_);
+    read_key_chooser_ = new SkewedLatestGenerator(*transaction_insert_key_sequence_);
   } else {
     throw utils::Exception("Unknown request distribution: " + request_dist);
   }
@@ -250,49 +247,6 @@ void CoreWorkload::BuildSingleValue(std::vector<ycsbc::DB::Field> &values) {
   std::generate_n(std::back_inserter(field.value), len, [&]() { return byte_generator.Next(); } );
 }
 
-uint64_t CoreWorkload::NextTransactionKeyNum() {
-  uint64_t key_num;
-  do {
-    key_num = key_chooser_->Next();
-  } while (key_num > transaction_insert_key_sequence_->Last());
-  return key_num;
-}
-
-std::string CoreWorkload::NextFieldName() {
-  return std::string(field_prefix_).append(std::to_string(field_chooser_->Next()));
-}
-
-bool CoreWorkload::DoInsert(DB &db) {
-  const std::string key = BuildKeyName(insert_key_sequence_->Next());
-  std::vector<DB::Field> fields;
-  BuildValues(fields);
-  return db.Insert(table_name_, key, fields) == DB::kOK;
-}
-
-bool CoreWorkload::DoTransaction(DB &db) {
-  DB::Status status;
-  switch (op_chooser_.Next()) {
-    case READ:
-      status = TransactionRead(db);
-      break;
-    case UPDATE:
-      status = TransactionUpdate(db);
-      break;
-    case INSERT:
-      status = TransactionInsert(db);
-      break;
-    case SCAN:
-      status = TransactionScan(db);
-      break;
-    case READMODIFYWRITE:
-      status = TransactionReadModifyWrite(db);
-      break;
-    default:
-      throw utils::Exception("Operation request is not recognized!");
-  }
-  return (status == DB::kOK);
-}
-
 DB::Status CoreWorkload::TransactionRead(DB &db) {
   uint64_t key_num = NextTransactionKeyNum();
   const std::string key = BuildKeyName(key_num);
@@ -328,6 +282,14 @@ DB::Status CoreWorkload::TransactionReadModifyWrite(DB &db) {
   return db.Update(table_name_, key, values);
 }
 
+DB::Status CoreWorkload::TransactionUpdate(DB &db) {
+  uint64_t key_num = NextUpdateTransactionKeyNum();
+  const std::string key = BuildKeyName(key_num);
+  std::vector<DB::Field> values;
+  BuildValues(values);
+  return db.Update(table_name_, key, values);
+}
+
 DB::Status CoreWorkload::TransactionScan(DB &db) {
   uint64_t key_num = NextTransactionKeyNum();
   const std::string key = BuildKeyName(key_num);
@@ -340,18 +302,6 @@ DB::Status CoreWorkload::TransactionScan(DB &db) {
   } else {
     return db.Scan(table_name_, key, len, NULL, result);
   }
-}
-
-DB::Status CoreWorkload::TransactionUpdate(DB &db) {
-  uint64_t key_num = NextTransactionKeyNum();
-  const std::string key = BuildKeyName(key_num);
-  std::vector<DB::Field> values;
-  if (write_all_fields()) {
-    BuildValues(values);
-  } else {
-    BuildSingleValue(values);
-  }
-  return db.Update(table_name_, key, values);
 }
 
 DB::Status CoreWorkload::TransactionInsert(DB &db) {

@@ -15,6 +15,7 @@ EXTRA_LDFLAGS ?=
 
 BIND_LEVELDB ?= 0
 BIND_ROCKSDB ?= 0
+BIND_BTREEDB ?= 0
 BIND_LMDB ?= 0
 BIND_HDRHISTOGRAM ?= 0
 
@@ -35,6 +36,12 @@ endif
 ifeq ($(BIND_ROCKSDB), 1)
 	LDFLAGS += -lrocksdb
 	SOURCES += $(wildcard rocksdb/*.cc)
+endif
+
+ifeq ($(BIND_BTREEDB), 1)
+	LDFLAGS += -lvtable
+	LDFLAGS += -lpthread
+	SOURCES += $(wildcard btree/*.cc)
 endif
 
 ifeq ($(BIND_LMDB), 1)
